@@ -1,0 +1,78 @@
+---
+title: "How the U.S. Population is Distributed"
+runtime: shiny
+output: 
+  flexdashboard::flex_dashboard:
+    theme: bootstrap
+    social: menu
+    source_code: https://github.com/juliasilge/populationapp
+---
+
+```{r setup, include=FALSE}
+library(shiny)
+library(flexdashboard)
+library(dplyr)
+library(ggplot2)
+library(scales)
+library(ggthemes)
+library(ggalt)
+library(rgeos)
+library(maptools)
+library(albersusa)
+
+popDF <- readr::read_csv("./pop2014.csv")
+counties <- counties_composite()
+counties@data <- left_join(counties@data, popDF, by = "fips")
+cmap <- fortify(counties_composite(), region="fips")
+sortingDF <- counties@data %>% select(fips, name, state, pop2014)
+totalpop <- sum(sortingDF$pop2014, na.rm = TRUE)
+sortingDF <- sortingDF %>% arrange(pop2014) %>% 
+        mutate(cumsum = cumsum(pop2014))
+
+```
+
+
+Column {.sidebar}
+-----------------------------------------------------------------------
+
+The United States population is concentrated in urban areas, with vast swaths of the nation populated at much lower levels. This is not a shocking statement, but it might be surprising to see just how concentrated the population actually is. This Shiny app explores how the U.S. population is distributed by showing where a given percentage of the population is located, in the most populous counties.
+
+Use the slider below to choose at what percentage of the population to break between high and low population counties.
+
+```{r}
+sliderInput("percent", label = "Percent of U.S. population:",
+            min = 0, max = 100, value = 50)
+```
+
+The code for this Shiny app is [on GitHub](https://github.com/juliasilge/populationapp). The population data are from the [American Community Survey](https://www.census.gov/programs-surveys/acs/) and are the 5-year estimates for 2010 to 2014.
+
+Column 
+-----------------------------------------------------------------------
+
+### Most Populous Counties
+
+```{r}
+sorted <- reactive({
+        sortingDF %>% 
+                mutate(lowhigh = ifelse(cumsum > totalpop * input$percent/100, "high", "low")) %>%
+                select(fips, lowhigh)
+        })
+newcounties <- reactive({left_join(counties@data, sorted(), by = "fips")})
+
+renderPlot({
+        p <- ggplot() +
+                geom_map(data = cmap, map = cmap,
+                         aes(x = long, y = lat, map_id = id),
+                         color = NA, size = 0.05, fill = NA) +
+                geom_map(data = newcounties(), map = cmap,
+                         aes(fill = lowhigh, map_id = fips),
+                         color = NA) +
+                theme_map(base_size = 12) +
+                coord_proj(us_laea_proj) +
+                scale_fill_manual(values = c("#003A54", "#B5DDC9"), name="Population") +
+                theme(legend.position=c(0.8, 0.25)) +
+                theme(legend.key = element_rect(colour = NA))
+        p
+})
+
+```
